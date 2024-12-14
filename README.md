@@ -8,4 +8,4 @@ Python 3.12 required
 
 ![Alt text](confusion_matrix.png)
 
-The weights are published to HF Hub:
+The weights are available on [HF Hub](https://huggingface.co/anatal/code_english_model).

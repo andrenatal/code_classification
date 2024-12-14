@@ -71,8 +71,8 @@ model = AutoModelForSequenceClassification.from_pretrained(
 )
 
 early_stopping = EarlyStoppingCallback(
-    early_stopping_patience=100,
-    early_stopping_threshold=0.001
+    early_stopping_patience=5,
+    early_stopping_threshold=0.01
 )
 
 training_args = TrainingArguments(
@@ -80,7 +80,7 @@ training_args = TrainingArguments(
     learning_rate=2e-5,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
-    num_train_epochs=5,
+    num_train_epochs=2,
     weight_decay=0.001,
     eval_strategy="steps",
     save_strategy="steps",
@@ -88,8 +88,8 @@ training_args = TrainingArguments(
     push_to_hub=True,
     report_to=["tensorboard"],
     logging_steps=50,
-    eval_steps=100,
-    save_steps=100,
+    eval_steps=20,
+    save_steps=20,
     metric_for_best_model="eval_loss",
     save_total_limit=1
 )
@@ -113,8 +113,6 @@ print("Finished training")
 
 classifier = pipeline("sentiment-analysis", model=trainer.state.best_model_checkpoint, device="cuda:0")
 text = "The server is broken. Can you fix it?"
-print(text)
-classifier(text)
+print(text, classifier(text))
 text = "<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"
-print(text)
-classifier(text)
+print(text, classifier(text))
