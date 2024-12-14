@@ -6,7 +6,11 @@ from transformers import AutoTokenizer
 from transformers import DataCollatorWithPadding
 import evaluate
 import numpy as np
-from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer
+from transformers import EarlyStoppingCallback, AutoModelForSequenceClassification, TrainingArguments, Trainer
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, accuracy_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
 
 def preprocess_function(examples):
     return tokenizer(examples["text"], truncation=True)
@@ -14,50 +18,45 @@ def preprocess_function(examples):
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
-    return accuracy.compute(predictions=predictions, references=labels)
-
+    accuracy_computed = accuracy.compute(predictions=predictions, references=labels)
+    accuracy_ = accuracy_score(labels, predictions)
+    precision = precision_score(labels, predictions, average='weighted')
+    recall = recall_score(labels, predictions, average='weighted')
+    f1 = f1_score(labels, predictions, average='weighted')
+    cm = confusion_matrix(labels, predictions)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Precision {:.2f}, Recall {:.2f} F1 Score: {:.2f}, Accuracy: {:.2f}%'.format(precision, recall, f1, accuracy_ * 100))
+    plt.savefig(f'confusion_matrix.png', dpi=300)
+    print("\nConfusion Matrix:")
+    print(cm)
+    print(f"Precision: {precision}")
+    print(f"Recall: {recall}")
+    print(f"F1: {f1}")
+    return accuracy_computed
 
 imdb = load_dataset("imdb")
-
-print(imdb)
-
-trainset_dict = {"text":[],"label":[]}
-for entry in imdb["train"]:
-    trainset_dict["text"].append(entry["text"])
-    trainset_dict["label"].append(0)
-
-testset_dict = {"text":[],"label":[]}
-for entry in imdb["test"]:
-    testset_dict["text"].append(entry["text"])
-    testset_dict["label"].append(0)
-
-# now we get the code dataset and add 25000 to the respective datasets
+test_size = 0.1
+text = imdb["train"]["text"] + imdb["test"]["text"]
+label = np.full(len(text), 0).tolist()
 code_ds_train = load_dataset("codeparrot/github-code", streaming=True, split="train", trust_remote_code=True)
 total = 0
 for entry in iter(code_ds_train):
-    if total % 2 == 0:
-        trainset_dict["text"].append(entry["code"])
-        trainset_dict["label"].append(1)
-    else:
-        testset_dict["text"].append(entry["code"])
-        testset_dict["label"].append(1)
+    text.append(entry["code"])
+    label.append(1)
     total += 1
     if total == (50000):
         break
 
+train_texts, test_texts, train_labels, test_labels = train_test_split(
+    text, label, test_size=0.1, stratify=label, random_state=42
+)
 
-trainset = Dataset.from_dict(trainset_dict)
-testset = Dataset.from_dict(testset_dict)
-print(testset)
-print(trainset)
-
-dataset_dict = {"train":trainset, "test":testset}
-print(dataset_dict)
-
-print(imdb)
-
-dataset_dict = DatasetDict(dataset_dict)
-print(dataset_dict)
+trainset_dict = {"text": train_texts, "label": train_labels}
+testset_dict = {"text": test_texts, "label": test_labels}
+dataset_dict = DatasetDict( {"train":Dataset.from_dict(trainset_dict), "test":Dataset.from_dict(testset_dict)})
 
 tokenizer = AutoTokenizer.from_pretrained("distilbert/distilbert-base-uncased")
 tokenized_imdb = dataset_dict.map(preprocess_function, batched=True)
@@ -71,19 +70,28 @@ model = AutoModelForSequenceClassification.from_pretrained(
     "distilbert/distilbert-base-uncased", num_labels=2, id2label=id2label, label2id=label2id
 )
 
+early_stopping = EarlyStoppingCallback(
+    early_stopping_patience=100,
+    early_stopping_threshold=0.001
+)
+
 training_args = TrainingArguments(
     output_dir="code_english_model",
     learning_rate=2e-5,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
-    num_train_epochs=2,
-    weight_decay=0.01,
-    eval_strategy="epoch",
-    save_strategy="epoch",
+    num_train_epochs=5,
+    weight_decay=0.001,
+    eval_strategy="steps",
+    save_strategy="steps",
     load_best_model_at_end=True,
-    push_to_hub=False,
+    push_to_hub=True,
     report_to=["tensorboard"],
-    logging_steps=1,  # how often to log to W&B
+    logging_steps=50,
+    eval_steps=100,
+    save_steps=100,
+    metric_for_best_model="eval_loss",
+    save_total_limit=1
 )
 
 trainer = Trainer(
@@ -94,11 +102,19 @@ trainer = Trainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=compute_metrics,
+    callbacks=[early_stopping]
 )
 
 trainer.train()
 
-classifier = pipeline("sentiment-analysis", model="code_english_model/checkpoint-1564", device="cuda:0")
+print(f"Last saved checkpoint: {trainer.state.best_model_checkpoint}")
+print(trainer.evaluate())
+print("Finished training")
 
-text = "hello, I love you a lot"
+classifier = pipeline("sentiment-analysis", model=trainer.state.best_model_checkpoint, device="cuda:0")
+text = "The server is broken. Can you fix it?"
+print(text)
+classifier(text)
+text = "<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"
+print(text)
 classifier(text)
