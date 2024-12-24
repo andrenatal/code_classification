@@ -1,72 +1,104 @@
+import time
 from transformers import AutoTokenizer, AutoModel
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.functional import cross_entropy
+from customdataset import CustomDataSet
+from torch.utils.data import DataLoader, random_split
+from torch.utils.tensorboard import SummaryWriter
+import torch.multiprocessing as mp
+from torch.multiprocessing import Pool
 
-num_epochs = 100
+if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
+    torch.multiprocessing.set_start_method("spawn", force=True)
 
-samples = [
-    {"text": "This is an English sentence.", "label": 0},
-    {"text": "def add(a, b): return a + b", "label": 1},
-    # Add more examples...
-]
+    class MetaClassifier(nn.Module):
+        def __init__(self, input_dim):
+            super(MetaClassifier, self).__init__()
+            self.fc = nn.Sequential(
+                nn.Linear(input_dim, 128),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(128, 1),
+            )
 
-# Initialize models
-text_model = AutoModel.from_pretrained("distilbert-base-uncased")
-code_model = AutoModel.from_pretrained("microsoft/codebert-base")
-text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-code_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+        def forward(self, x):
+            return self.fc(x)
 
-def generate_combined_embeddings(text):
-    # Encode English text
-    text_inputs = text_tokenizer(text, return_tensors="pt")
-    text_embeddings = text_model(**text_inputs).last_hidden_state.mean(dim=1)  # [batch_size, hidden_dim]
+    if torch.cuda.is_available():
+        n_gpus = torch.cuda.device_count()
+        print(f"Number of GPUs available: {n_gpus}")
+    else:
+        print("No GPUs available")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    # Encode code snippet
-    code_inputs = code_tokenizer(text, return_tensors="pt")
-    code_embeddings = code_model(**code_inputs).last_hidden_state.mean(dim=1)  # [batch_size, hidden_dim]
+    num_epochs = 100
 
-    return torch.cat((text_embeddings, code_embeddings), dim=1)  # [batch_size, hidden_dim * 2]
+    dataset = CustomDataSet()
+    dataset.load_data()
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
 
-class MetaClassifier(nn.Module):
-    def __init__(self, input_dim, num_classes):
-        super(MetaClassifier, self).__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, num_classes),
-        )
+    writer = SummaryWriter(log_dir=f'runs/code_classification/{time.strftime("%Y%m%d-%H%M%S")}/')
 
-    def forward(self, x):
-        return self.fc(x)
+    # Initialize classifier
+    meta_classifier = MetaClassifier(input_dim=768 + 768)
+    meta_classifier.to(device)
+    meta_classifier = nn.DataParallel(meta_classifier)
+    optimizer = optim.Adam(meta_classifier.parameters(), lr=1e-4)
+    loss_fn = nn.BCEWithLogitsLoss()
 
-# Initialize classifier
-num_classes = 2  # English or Code
-meta_classifier = MetaClassifier(input_dim=768 + 768, num_classes=2)  # Example dimensions
-meta_classifier.to("cuda")
-optimizer = optim.Adam(meta_classifier.parameters(), lr=1e-4)
-loss_fn = nn.CrossEntropyLoss()
+    for epoch in range(num_epochs):
+        meta_classifier.train()
+        running_loss = 0.0
+        for batch_idx, batch in enumerate(train_loader):
+            # Forward pass
+            logits = meta_classifier(batch["training_examples"].to(device))
+            outputs = logits.squeeze(1)
+            loss = loss_fn(outputs, batch["training_labels"].to(device))
 
-for epoch in range(num_epochs):
-    meta_classifier.train()
-    running_loss = 0.0
-    for sample in samples:
-        combined_embeddings = generate_combined_embeddings(sample["text"])
-        labels = torch.tensor([sample["label"]])
+            # Backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        # Forward pass
-        logits = meta_classifier(combined_embeddings)
-        loss = loss_fn(logits, labels)
+            # Accumulate loss
+            running_loss += loss.item()
+            writer.add_scalar('Training Loss', loss.item(), epoch * len(train_loader) + batch_idx)
 
-        # Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        avg_loss = running_loss / len(train_loader)
+        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {running_loss / len(train_loader)}")
+        writer.add_scalar('Average Training Loss', avg_loss, epoch)
 
-        # Accumulate loss
-        running_loss += loss.item()
+        # Validation
+        meta_classifier.eval()
+        val_loss = 0.0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                logits = meta_classifier(batch["training_examples"].to(device))
+                outputs = logits.squeeze(1)
+                loss = loss_fn(outputs, batch["training_labels"].to(device))
+                val_loss += loss.item()
+                probabilities = torch.sigmoid(outputs)
+                # Calculate accuracy
+                predicted = (probabilities > 0.5).float()
+                correct += (predicted == batch["training_labels"].to(device)).sum().item()
+                total += batch["training_labels"].size(0)
 
-meta_classifier.eval()
-torch.save(meta_classifier, 'meta_classifier.pth')
+        avg_val_loss = val_loss / len(val_loader)
+        accuracy = correct / total
+        print(f"Validation Loss: {avg_val_loss}, Accuracy: {accuracy}")
+        writer.add_scalar('Validation Loss', avg_val_loss, epoch)
+        writer.add_scalar('Validation Accuracy', accuracy, epoch)
+
+    meta_classifier = meta_classifier.module
+    torch.save(meta_classifier.state_dict(), 'meta_classifier.pth')
+    writer.close()
+

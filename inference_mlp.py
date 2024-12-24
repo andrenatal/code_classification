@@ -7,13 +7,13 @@ import torch.optim as optim
 from torch.nn.functional import cross_entropy
 
 class MetaClassifier(nn.Module):
-    def __init__(self, input_dim, num_classes):
+    def __init__(self, input_dim):
         super(MetaClassifier, self).__init__()
         self.fc = nn.Sequential(
             nn.Linear(input_dim, 128),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(128, num_classes),
+            nn.Linear(128, 1),
         )
 
     def forward(self, x):
@@ -27,10 +27,12 @@ text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 code_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
 
 # Load trained meta-classifier
-meta_classifier = torch.load("meta_classifier.pth")
+meta_classifier = MetaClassifier(input_dim=768 + 768)
+meta_classifier.load_state_dict(torch.load('meta_classifier.pth'))
+meta_classifier.eval()
 
 # Inference input
-input_text = "This is an English sentence."
+input_text ="text_tokenizer(input_text, return_tensors="
 
 # Tokenize and get embeddings
 text_inputs = text_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
@@ -39,10 +41,9 @@ text_embeddings = text_model(**text_inputs).last_hidden_state.mean(dim=1)  # [1,
 code_embeddings = code_model(**code_inputs).last_hidden_state.mean(dim=1)  # [1, hidden_dim_code]
 
 # Combine embeddings and classify
-combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1)  # [1, hidden_dim_text + hidden_dim_code]
+combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1) # [1, hidden_dim_text + hidden_dim_code]
 logits = meta_classifier(combined_embeddings)  # [1, num_classes]
-probabilities = torch.softmax(logits, dim=1)
-predicted_class = torch.argmax(probabilities, dim=1).item()
-
-# Output
-print("Predicted Class:", predicted_class)  # 0 = English, 1 = Code
+probabilities = torch.sigmoid(logits)
+print("probabilities:", probabilities, 1-probabilities)
+predictions = (probabilities > 0.5).float()
+print("Predictions:", predictions)
