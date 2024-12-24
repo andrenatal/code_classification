@@ -13,8 +13,8 @@ from torch.multiprocessing import Pool, current_process
 class CustomDataSet(Dataset):
     def __init__(self):
         self.code_path = "/media/4tbdrive/corpora/code_classification/code/"
-        self.MAX_TEXT_EXAMPLES = 100
-        self.MAX_CODE_EXAMPLES = 100
+        self.MAX_TEXT_EXAMPLES = 1000
+        self.MAX_CODE_EXAMPLES = 1000
         self.text_models = {}
         self.code_models = {}
         for i in range(4):  # Corrected the for loop syntax
