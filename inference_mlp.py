@@ -5,6 +5,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn.functional import cross_entropy
+from transformers import pipeline
+
+classifier = pipeline("sentiment-analysis", model="anatal/code_english_model", revision="bf8ccd4", device="cuda:3")
+classifier2 = pipeline("sentiment-analysis", model="anatal/code_english_model", device="cuda:3")
 
 class MetaClassifier(nn.Module):
     def __init__(self, input_dim):
@@ -31,19 +35,30 @@ meta_classifier = MetaClassifier(input_dim=768 + 768)
 meta_classifier.load_state_dict(torch.load('meta_classifier.pth'))
 meta_classifier.eval()
 
-# Inference input
-input_text ="text_tokenizer(input_text, return_tensors="
+def run_inference(input_text):
+    # Tokenize and get embeddings
+    text_inputs = text_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
+    code_inputs = code_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
+    text_embeddings = text_model(**text_inputs).last_hidden_state.mean(dim=1)  # [1, hidden_dim_text]
+    code_embeddings = code_model(**code_inputs).last_hidden_state.mean(dim=1)  # [1, hidden_dim_code]
 
-# Tokenize and get embeddings
-text_inputs = text_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
-code_inputs = code_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
-text_embeddings = text_model(**text_inputs).last_hidden_state.mean(dim=1)  # [1, hidden_dim_text]
-code_embeddings = code_model(**code_inputs).last_hidden_state.mean(dim=1)  # [1, hidden_dim_code]
+    # Combine embeddings and classify
+    combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1) # [1, hidden_dim_text + hidden_dim_code]
+    logits = meta_classifier(combined_embeddings)  # [1, num_classes]
+    probabilities = torch.sigmoid(logits)
+    #print("probabilities:", probabilities, 1-probabilities)
+    predictions = (probabilities > 0.5).float()
+    return predictions
 
-# Combine embeddings and classify
-combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1) # [1, hidden_dim_text + hidden_dim_code]
-logits = meta_classifier(combined_embeddings)  # [1, num_classes]
-probabilities = torch.sigmoid(logits)
-print("probabilities:", probabilities, 1-probabilities)
-predictions = (probabilities > 0.5).float()
-print("Predictions:", predictions)
+
+text = "hello, this is a test."
+print(text, classifier(text), classifier2(text), run_inference(text))
+text = "<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"
+print(text, classifier(text), classifier2(text), run_inference(text))
+text = "The server is broken. Can you fix it?"
+print(text, classifier(text), classifier2(text), run_inference(text))
+text = "https://pkg.go.dev/github.com/minio/madmin-go#AdminClient.GetConfigKV"
+print(text, classifier(text), classifier2(text), run_inference(text))
+text = "just doing `os.Open(filename)`"
+print(text, classifier(text), classifier2(text), run_inference(text))
+text = "text_tokenizer(input_text, return_tensors="

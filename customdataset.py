@@ -9,43 +9,40 @@ import os
 from transformers import AutoTokenizer, AutoModel
 import torch
 from torch.multiprocessing import Pool, current_process
+import resource
+import multiprocessing
+import time
 
+# Set the limit of open files to unlimited
+soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (min(soft, hard), hard))
+
+# 0 is human language, 1 is computer code
 class CustomDataSet(Dataset):
     def __init__(self):
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.code_path = "/media/4tbdrive/corpora/code_classification/code/"
-        self.MAX_TEXT_EXAMPLES = 1000
-        self.MAX_CODE_EXAMPLES = 1000
-        self.text_models = {}
-        self.code_models = {}
-        for i in range(4):  # Corrected the for loop syntax
-            self.text_models[i] = AutoModel.from_pretrained("distilbert-base-uncased")
-            self.code_models[i] = AutoModel.from_pretrained("microsoft/codebert-base")
+        self.text_path = "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv"
+        self.MAX_TEXT_EXAMPLES = 100000
+        self.MAX_CODE_EXAMPLES = 100000
 
+        self.text_model = AutoModel.from_pretrained("distilbert-base-uncased").to(self.device)
+        self.text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+        self.code_model = AutoModel.from_pretrained("microsoft/codebert-base").to(self.device)
+        self.code_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
 
     def generate_combined_embeddings(self, text):
-        process_name = current_process().name
-        worker_number = (int(process_name.split('-')[-1]) - 1) % 4
-        device = torch.device(f'cuda:{worker_number}' if torch.cuda.is_available() else 'cpu')
-        text_model = self.text_models[worker_number].to(device)
-        code_model = self.code_models[worker_number].to(device)
-        text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-        code_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-
         # Encode English text
-        text_inputs = text_tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(device)
-        text_embeddings = text_model(**text_inputs).last_hidden_state.mean(dim=1)
+        text_inputs = self.text_tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(self.device)
+        text_embeddings = self.text_model(**text_inputs).last_hidden_state.mean(dim=1)
 
         # Encode code snippet
-        code_inputs = code_tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(device)
-        code_embeddings = code_model(**code_inputs).last_hidden_state.mean(dim=1)
+        code_inputs = self.code_tokenizer(text, return_tensors="pt", max_length=512, truncation=True).to(self.device)
+        code_embeddings = self.code_model(**code_inputs).last_hidden_state.mean(dim=1)
 
-        combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1)
-
-        # Unload models from CUDA
-        text_model.to('cpu')
-        code_model.to('cpu')
-
-        return combined_embeddings.cpu().detach()  # Move to CPU and detach
+        combined_embeddings = torch.cat((text_embeddings, code_embeddings), dim=1).cpu().detach()
+        return combined_embeddings[0]  # Move to CPU and detach
 
     def __len__(self):
         return len(self.training_examples)
@@ -53,46 +50,53 @@ class CustomDataSet(Dataset):
     def __getitem__(self, idx):
         return {"training_examples": self.training_examples[idx], "training_labels": self.training_labels[idx]}
 
-    def read_file(self, file_path):
+    # code generation functions
+    def read_and_process_file(self, file_path):
         if os.path.isfile(file_path):
             with open(file_path, 'r') as file:
                 code = file.read()
                 codeembs = self.generate_combined_embeddings(code)
-                return codeembs
-        return None
+                return {"training_examples": codeembs, "training_labels": torch.tensor([1.0], dtype=torch.float).detach()}
 
-    def load_code_files(self, code_path, max_code_examples):
+    def code_generator(self, code_path, max_code_examples):
         code_files = glob.glob(os.path.join(code_path, '*'))[:max_code_examples]
-        total_code_files = 0
-        training_examples = []
-        label = []
+        for file_path in code_files:
+            example = self.read_and_process_file(file_path)
+            if example is not None:
+                yield example
 
-        with Pool(processes=16) as pool:
-            results = pool.map(self.read_file, code_files)
+    def load_code_files(self):
+        return datasets.Dataset.from_generator(
+            lambda: self.code_generator(self.code_path, self.MAX_CODE_EXAMPLES),
+            num_proc=8
+        )
 
-        for code in results:
-            if code is not None:
-                training_examples.append(code)
-                label.append(torch.tensor([1.0], dtype=torch.float).detach())
-                total_code_files += 1
-                if total_code_files == max_code_examples:  # we want a balanced dataset
+    # text generation functions
+    def text_generator(self, text_path, max_text_examples):
+        with open(text_path, 'r') as file:
+            for i, line in enumerate(file):
+                if i == 0:
+                    continue
+                if i > max_text_examples:
                     break
-        return training_examples, label
+                textembs = self.generate_combined_embeddings(line)
+                yield {"training_examples": textembs, "training_labels": torch.tensor([0.0], dtype=torch.float).detach()}
+
+    def load_text_files(self):
+        return datasets.Dataset.from_generator(
+            lambda: self.text_generator(self.text_path, self.MAX_CODE_EXAMPLES),
+            num_proc=8
+        )
 
     def load_data(self):
-        # read text
-        dataset = datasets.Dataset.from_text("/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv")
-        text_training_examples = dataset["text"][:self.MAX_TEXT_EXAMPLES]
-        text_labels = [torch.tensor([0.0], dtype=torch.float) for i in range(len(text_training_examples))]
-        with Pool(processes=16) as pool:
-            results_embs = pool.map(self.generate_combined_embeddings, text_training_examples)
-        text_training_examples = results_embs
-
         # read code
-        code_training_examples, code_label = self.load_code_files(self.code_path, self.MAX_CODE_EXAMPLES)
+        code_dataset = self.load_code_files()
+
+        # read text
+        text_dataset = self.load_text_files()
 
         # split data
-        self.training_examples = text_training_examples + code_training_examples
-        self.training_labels = text_labels + code_label
+        self.training_examples = text_dataset["training_examples"] + code_dataset["training_examples"]
+        self.training_labels = text_dataset["training_labels"] + code_dataset["training_labels"]
 
         print(f"Loaded {len(self.training_examples)} training examples")
