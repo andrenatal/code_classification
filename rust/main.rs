@@ -7,7 +7,7 @@ use ort::{
 use tokenizers::{Result, Tokenizer, PaddingParams, PaddingStrategy, EncodeInput};
 
 fn main() -> ort::Result<()> {
-	let inputs = vec!["I am writing this to test the model."];
+	let inputs = vec!["<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"];
 
     // Initialize tracing to receive debug messages from `ort`
 	tracing_subscriber::fmt::init();
@@ -19,8 +19,8 @@ fn main() -> ort::Result<()> {
 	let session = Session::builder()?
 		.with_optimization_level(GraphOptimizationLevel::Level1)?
 		.with_intra_threads(1)?
-		.commit_from_file("/media/4tbdrive/engines/code_classification/onnx/distilbert_base_uncased/model.onnx")?;
-	let mut tokenizer = Tokenizer::from_file("/media/4tbdrive/engines/code_classification/onnx/distilbert_base_uncased/tokenizer.json").unwrap();
+		.commit_from_file("../onnx/distilbert_base_uncased/model.onnx")?;
+	let mut tokenizer = Tokenizer::from_file("../onnx/distilbert_base_uncased/tokenizer.json").unwrap();
     //let tokenizer = Tokenizer::from_pretrained("distilbert_base_uncased", None)?;
     tokenizer.with_padding(Some(PaddingParams {
         strategy: PaddingStrategy::BatchLongest,
@@ -43,8 +43,8 @@ fn main() -> ort::Result<()> {
 	let session = Session::builder()?
 		.with_optimization_level(GraphOptimizationLevel::Level1)?
 		.with_intra_threads(1)?
-		.commit_from_file("/media/4tbdrive/engines/code_classification/onnx/codebert-base/model.onnx")?;
-	let mut tokenizer = Tokenizer::from_file("/media/4tbdrive/engines/code_classification/onnx/codebert-base/tokenizer.json").unwrap();
+		.commit_from_file("../onnx/codebert-base/model.onnx")?;
+	let mut tokenizer = Tokenizer::from_file("../onnx/codebert-base/tokenizer.json").unwrap();
     tokenizer.with_padding(Some(PaddingParams {
         strategy: PaddingStrategy::BatchLongest,
         ..Default::default()
@@ -63,9 +63,10 @@ fn main() -> ort::Result<()> {
 	let session = Session::builder()?
 		.with_optimization_level(GraphOptimizationLevel::Level1)?
 		.with_intra_threads(1)?
-		.commit_from_file("/media/4tbdrive/engines/code_classification/onnx/meta_classifier.onnx")?;
+		.commit_from_file("../onnx/meta_classifier.onnx")?;
     let concat_embs = concatenate(Axis(1), &[text_embs.view(), code_embs.view()]).unwrap();
-    //println!("concat_embs: {:?}", concat_embs);
+    let concat_embs = concat_embs.insert_axis(Axis(1));
+    println!("concat_embs: {:?}", concat_embs);
 
 	let outputs = session.run(ort::inputs![concat_embs]?)?;
     //println!("outputs: {:?}", outputs);

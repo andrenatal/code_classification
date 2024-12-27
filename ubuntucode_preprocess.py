@@ -4,13 +4,13 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 from datasets import load_dataset
 
-code_train_df = pd.read_csv("/media/4tbdrive/corpora/ubuntu-ranking-dataset-creator/src/train.csv")
+code_train_df = pd.read_csv("/media/4tbdrive/corpora/ubuntu-ranking-dataset-creator/src/test.csv")
 
-path_code_files = "/media/4tbdrive/corpora/code_classification/code/"
-output_textfile = "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv"
+path_code_files = "/media/4tbdrive/corpora/code_classification/code_test/"
+output_textfile = "/media/4tbdrive/corpora/code_classification/text/test_text_cleaned.csv"
 
 final_list = []
-data = code_train_df["Context"].tolist() + code_train_df["Utterance"].tolist()
+data = code_train_df["Context"].tolist() + code_train_df["Ground Truth Utterance"].tolist()
 print(f"Total entries: {len(data)}")
 
 def process_entry(entry):
@@ -31,8 +31,9 @@ if __name__ == "__main__":
 
     print(f"Processing english complete. Total unique entries: {total_text}. Generating code dataset...")
 
+"""
     max_length = max(len(t) for t in final_list)
-    code_ds_train = load_dataset("codeparrot/github-code", streaming=True, split="train", trust_remote_code=True)
+    code_ds_train = load_dataset("codeparrot/github-code", streaming=True, split="test", trust_remote_code=False)
     total = 0
     for entry in iter(code_ds_train):
         code = entry["code"]
@@ -45,3 +46,4 @@ if __name__ == "__main__":
             break
 
     print(f"Processing code complete. Total unique entries: {total}.")
+"""

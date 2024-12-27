@@ -19,12 +19,12 @@ resource.setrlimit(resource.RLIMIT_NOFILE, (min(soft, hard), hard))
 
 # 0 is human language, 1 is computer code
 class CustomDataSet(Dataset):
-    def __init__(self):
+    def __init__(self, code_path, text_path, MAX_TEXT_EXAMPLES, MAX_CODE_EXAMPLES):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.code_path = "/media/4tbdrive/corpora/code_classification/code/"
-        self.text_path = "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv"
-        self.MAX_TEXT_EXAMPLES = 500000
-        self.MAX_CODE_EXAMPLES = 500000
+        self.code_path = code_path
+        self.text_path = text_path
+        self.MAX_TEXT_EXAMPLES = MAX_TEXT_EXAMPLES
+        self.MAX_CODE_EXAMPLES = MAX_CODE_EXAMPLES
 
         self.text_model = AutoModel.from_pretrained("distilbert-base-uncased").to(self.device)
         self.text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
@@ -90,13 +90,13 @@ class CustomDataSet(Dataset):
 
     def load_data(self):
         # read code
-        code_dataset = self.load_code_files()
+        self.code_dataset = self.load_code_files()
 
         # read text
-        text_dataset = self.load_text_files()
+        self.text_dataset = self.load_text_files()
 
         # split data
-        self.training_examples = text_dataset["training_examples"] + code_dataset["training_examples"]
-        self.training_labels = text_dataset["training_labels"] + code_dataset["training_labels"]
+        self.training_examples = self.text_dataset["training_examples"] + self.code_dataset["training_examples"]
+        self.training_labels = self.text_dataset["training_labels"] + self.code_dataset["training_labels"]
 
         print(f"Loaded {len(self.training_examples)} training examples")

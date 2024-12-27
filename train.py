@@ -15,17 +15,22 @@ class MetaClassifier(nn.Module,
                          PyTorchModelHubMixin,
                         repo_url="https://huggingface.co/anatal/",
                         license="mit"):
-        def __init__(self, input_dim):
+        def __init__(self, input_dim, hidden_dim=128, lstm_hidden_dim=64, dropout=0.3):
             super(MetaClassifier, self).__init__()
+            self.lstm = nn.LSTM(input_dim, lstm_hidden_dim, batch_first=True)
             self.fc = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
+                nn.Linear(lstm_hidden_dim, hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, 1),
             )
 
         def forward(self, x):
-            return self.fc(x)
+            # Assuming x has shape [batch_size, seq_len, input_dim]
+            lstm_out, (h_n, c_n) = self.lstm(x)
+            # Use the last hidden state of the LSTM
+            lstm_out = lstm_out[:, -1, :]  # [batch_size, lstm_hidden_dim]
+            return self.fc(lstm_out)
 
 if __name__ == "__main__":
 
@@ -36,6 +41,12 @@ if __name__ == "__main__":
         print("No GPUs available")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+
+    dataset = CustomDataSet("/media/4tbdrive/corpora/code_classification/code/",
+                            "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv",
+                            10000,
+                            10000)
+    dataset.load_data()
     num_epochs = 1000
     batch_size =16
     dropout = 0.5
@@ -79,8 +90,6 @@ if __name__ == "__main__":
         training_labels = torch.stack([torch.tensor(item["training_labels"]) for item in batch]).to(device)
         return {"training_examples": training_examples, "training_labels": training_labels}
 
-    dataset = CustomDataSet()
-    dataset.load_data()
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -94,7 +103,7 @@ if __name__ == "__main__":
     meta_classifier.to(device)
     if torch.cuda.device_count() > 1:
         meta_classifier = nn.DataParallel(meta_classifier)
-    optimizer = optim.Adam(meta_classifier.parameters(), lr=1e-4)
+    optimizer = optim.Adam(meta_classifier.parameters(), lr=1e-6)
     loss_fn = nn.BCEWithLogitsLoss()
 
     early_stopping = EarlyStopping(patience=10, verbose=True)
@@ -103,9 +112,16 @@ if __name__ == "__main__":
         meta_classifier.train()
         running_loss = 0.0
         for batch_idx, batch in enumerate(train_loader):
-            # Forward pass
-            logits = meta_classifier(batch["training_examples"])
-            loss = loss_fn(logits, batch["training_labels"])
+        # Move data to device
+            inputs = batch["training_examples"]
+            labels = batch["training_labels"]
+
+            # Ensure inputs have the correct shape [batch_size, seq_len, input_dim]
+            if inputs.dim() == 2:
+                inputs = inputs.unsqueeze(1)  # Add sequence dimension
+
+            logits = meta_classifier(inputs)
+            loss = loss_fn(logits, labels)
 
             # Backpropagation
             optimizer.zero_grad()
@@ -127,8 +143,18 @@ if __name__ == "__main__":
         total = 0
         with torch.no_grad():
             for batch in val_loader:
-                logits = meta_classifier(batch["training_examples"])
-                loss = loss_fn(logits, batch["training_labels"])
+
+                inputs = batch["training_examples"]
+                labels = batch["training_labels"]
+
+                # Ensure inputs have the correct shape [batch_size, seq_len, input_dim]
+                if inputs.dim() == 2:
+                    inputs = inputs.unsqueeze(1)  # Add sequence dimension
+
+                logits = meta_classifier(inputs)
+                loss = loss_fn(logits, labels)
+
+
                 val_loss += loss.item()
                 probabilities = torch.sigmoid(logits)
                 # Calculate accuracy
@@ -148,13 +174,10 @@ if __name__ == "__main__":
             print("Early stopping")
             break
 
-    meta_classifier.load_state_dict(torch.load('checkpoints/checkpoint.pth'))
+    meta_classifier.load_state_dict(torch.load('checkpoints/checkpoint.pth', weights_only=True))
     if torch.cuda.device_count() > 1:
         meta_classifier = meta_classifier.module
     # torch format save local
     torch.save(meta_classifier.state_dict(), 'final_checkpoint.pth')
-    # push and save hf formats
-    meta_classifier.push_to_hub(commit_message="Final model", repo_id="anatal/code_english_model")
-    meta_classifier.save_pretrained("code_english_model")
     writer.close()
 
