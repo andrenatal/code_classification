@@ -23,8 +23,8 @@ class CustomDataSet(Dataset):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.code_path = "/media/4tbdrive/corpora/code_classification/code/"
         self.text_path = "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv"
-        self.MAX_TEXT_EXAMPLES = 100000
-        self.MAX_CODE_EXAMPLES = 100000
+        self.MAX_TEXT_EXAMPLES = 500000
+        self.MAX_CODE_EXAMPLES = 500000
 
         self.text_model = AutoModel.from_pretrained("distilbert-base-uncased").to(self.device)
         self.text_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")

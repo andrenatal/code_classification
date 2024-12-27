@@ -1,0 +1,2 @@
+optimum-cli export onnx --model distilbert/distilbert-base-uncased onnx/distilbert_base_uncased/ --task feature-extraction --dtype fp32 --opset 19 --device cuda
+optimum-cli export onnx --model microsoft/codebert-base onnx/codebert-base/ --task feature-extraction --dtype fp32  --opset 19 --device cuda

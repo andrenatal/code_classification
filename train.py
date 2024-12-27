@@ -11,21 +11,7 @@ import torch.multiprocessing as mp
 from torch.multiprocessing import Pool
 from huggingface_hub import HfApi, Repository, PyTorchModelHubMixin
 
-if __name__ == "__main__":
-
-    if torch.cuda.is_available():
-        n_gpus = torch.cuda.device_count()
-        print(f"Number of GPUs available: {n_gpus}")
-    else:
-        print("No GPUs available")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    num_epochs = 1000
-    batch_size =32
-    dropout = 0.3
-    hidden_dim = 512
-
-    class MetaClassifier(nn.Module,
+class MetaClassifier(nn.Module,
                          PyTorchModelHubMixin,
                         repo_url="https://huggingface.co/anatal/",
                         license="mit"):
@@ -40,6 +26,20 @@ if __name__ == "__main__":
 
         def forward(self, x):
             return self.fc(x)
+
+if __name__ == "__main__":
+
+    if torch.cuda.is_available():
+        n_gpus = torch.cuda.device_count()
+        print(f"Number of GPUs available: {n_gpus}")
+    else:
+        print("No GPUs available")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    num_epochs = 1000
+    batch_size =16
+    dropout = 0.5
+    hidden_dim = 256
 
     class EarlyStopping:
         def __init__(self, patience=5, verbose=False, delta=0):
@@ -127,13 +127,13 @@ if __name__ == "__main__":
         total = 0
         with torch.no_grad():
             for batch in val_loader:
-                logits = meta_classifier(batch["training_examples"].to(device))
-                loss = loss_fn(logits, batch["training_labels"].to(device))
+                logits = meta_classifier(batch["training_examples"])
+                loss = loss_fn(logits, batch["training_labels"])
                 val_loss += loss.item()
                 probabilities = torch.sigmoid(logits)
                 # Calculate accuracy
                 predicted = (probabilities > 0.5).float()
-                correct += (predicted == batch["training_labels"].to(device)).sum().item()
+                correct += (predicted == batch["training_labels"]).sum().item()
                 total += batch["training_labels"].size(0)
 
         avg_val_loss = val_loss / len(val_loader)
