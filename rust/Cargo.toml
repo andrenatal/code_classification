@@ -1,0 +1,15 @@
+[package]
+name = "rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+ndarray = "0.16.1"
+ort = "=2.0.0-rc.9"
+tokenizers = "0.21.0"
+tracing-subscriber = { version = "0.3", default-features = false, features = [ "env-filter", "fmt" ] }
+
+[[bin]]
+name = "rust"
+path = "main.rs"
