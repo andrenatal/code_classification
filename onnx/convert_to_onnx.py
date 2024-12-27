@@ -1,6 +1,8 @@
 from transformers import AutoModel, AutoTokenizer
 import torch
 import torch.nn as nn
+import safetensors.torch
+import json
 
 class MetaClassifier(nn.Module):
         def __init__(self, input_dim, hidden_dim=128, lstm_hidden_dim=64, dropout=0.3):
@@ -52,3 +54,15 @@ torch.onnx.export(
     opset_version=18
 )
 print(f"Model has been exported to {onnx_file_path}")
+
+model_config = {
+    "input_dim": 768 + 768,
+    "hidden_dim": 128,
+    "lstm_hidden_dim": 64,
+    "dropout": 0.3
+}
+config_file_path = 'checkpoints/checkpoint_config.json'
+with open(config_file_path, 'w') as f:
+    json.dump(model_config, f)
+
+safetensors.torch.save_file(meta_classifier.state_dict(), 'checkpoints/checkpoint.safetensors')
