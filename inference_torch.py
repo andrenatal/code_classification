@@ -6,8 +6,6 @@ import torch.optim as optim
 from torch.nn.functional import cross_entropy
 from transformers import pipeline
 
-classifier = pipeline("sentiment-analysis", model="anatal/code_english_model", revision="bf8ccd4", device="cuda:3")
-
 class MetaClassifier(nn.Module):
     def __init__(self, input_dim):
         super(MetaClassifier, self).__init__()
