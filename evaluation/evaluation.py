@@ -1,4 +1,6 @@
 import sys
+sys.path.append("./")
+
 import random
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -10,7 +12,7 @@ from customdataset import CustomDataSet
 import torch
 import torch.nn as nn
 
-model_name = 'models/final_checkpoint_lstm_full.pth'
+model_name = 'models/final_checkpoint_lstm_315_100000_examples.pth'
 
 class MetaClassifier(nn.Module):
         def __init__(self, input_dim, hidden_dim=128, lstm_hidden_dim=64, dropout=0.3):
@@ -47,7 +49,7 @@ def compute_f1():
         logits = meta_classifier(text)
         probabilities = torch.sigmoid(logits)
         predictions = (probabilities > 0.5).float()
-        print("Classifier text output: with a score of", predictions, "%", "for")
+        #print("Classifier text output: with a score of", predictions, "%", "for")
         total_preds += 1
         y_true.append(0)
         y_pred.append(predictions.item())
@@ -58,7 +60,7 @@ def compute_f1():
         logits = meta_classifier(code)
         probabilities = torch.sigmoid(logits)
         predictions = (probabilities > 0.5).float()
-        print("Classifier code output: with a score of", predictions, "%", "for")
+        #print("Classifier code output: with a score of", predictions, "%", "for")
         total_preds += 1
         y_true.append(1)
         y_pred.append(predictions.item())
@@ -82,7 +84,7 @@ def compute_f1():
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.title('Confusion Matrix. F1 Score: {:.2f}, Recall {:.2f}, Precision {:.2f}, Accuracy: {:.2f}%'.format(f1, recall, precision, accuracy * 100))
-    plt.savefig(f'confusion_matrix_{model_name.replace("/","_")}.png', dpi=300)  # Save as PNG with high resolution
+    plt.savefig(f'evaluation/confusion_matrix_{model_name.replace("/","_")}.png', dpi=300)  # Save as PNG with high resolution
     plt.close()  # Close the plot to free up memory
     return f1, accuracy
 

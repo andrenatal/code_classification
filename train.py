@@ -15,7 +15,7 @@ class MetaClassifier(nn.Module,
                          PyTorchModelHubMixin,
                         repo_url="https://huggingface.co/anatal/",
                         license="mit"):
-        def __init__(self, input_dim, hidden_dim=128, lstm_hidden_dim=64, dropout=0.3):
+        def __init__(self, input_dim, hidden_dim, dropout, lstm_hidden_dim=64):
             super(MetaClassifier, self).__init__()
             self.lstm = nn.LSTM(input_dim, lstm_hidden_dim, batch_first=True)
             self.fc = nn.Sequential(
@@ -44,13 +44,13 @@ if __name__ == "__main__":
 
     dataset = CustomDataSet("/media/4tbdrive/corpora/code_classification/code/",
                             "/media/4tbdrive/corpora/code_classification/text/train_text_cleaned.csv",
-                            10000,
+                            20000,
                             10000)
     dataset.load_data()
-    num_epochs = 1000
+    num_epochs = 5000
     batch_size =16
-    dropout = 0.5
-    hidden_dim = 256
+    dropout = 0.3
+    hidden_dim = 128
 
     class EarlyStopping:
         def __init__(self, patience=5, verbose=False, delta=0):
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     writer = SummaryWriter(log_dir=f'runs/code_classification/{time.strftime("%Y%m%d-%H%M%S")}/')
 
     # Initialize classifier
-    meta_classifier = MetaClassifier(input_dim=768 + 768)
+    meta_classifier = MetaClassifier(input_dim=768 + 768, dropout=dropout, hidden_dim=hidden_dim)
     meta_classifier.to(device)
     if torch.cuda.device_count() > 1:
         meta_classifier = nn.DataParallel(meta_classifier)

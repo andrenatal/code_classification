@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.nn.functional import cross_entropy
 from transformers import pipeline
 
-model_name = 'models/final_checkpoint_lstm_full.pth'
+model_name = 'models/final_checkpoint_lstm_327_10000_examples.pth'
 
 class MetaClassifier(nn.Module):
         def __init__(self, input_dim, hidden_dim=128, lstm_hidden_dim=64, dropout=0.3):
@@ -65,8 +65,9 @@ def run_inference(input_text):
         return input_text, "computer language", probabilities.item()
 
 print(run_inference("hello, this is a test."))
-print(run_inference("<html><head><title>Test</title></head><body><p>Hello World</p></body></html>"))
+print(run_inference("This text contains a little bit of text, and a little bit of code... But really contains more text than code... Let's see if adding more and more text will help it to make more text than code...  <html><head><title>Test</title></head><body><p>Hello World</p></body></html>"))
 print(run_inference("The server is broken. Can you fix it?"))
 print(run_inference("just doing `os.Open(filename)`"))
 print(run_inference("text_tokenizer(input_text, return_tensors="))
-print(run_inference("I am asking for it to be exposed, so that we dont have to use MC. ."))
+print(run_inference("So the feature request is related to our security posture. I will raise this on our next account review meeting. From what we have been briefed is that this was possible. As you know we are about to rapidly expanding our clusters and data volumes, and we need a easy way to monitor this value. @Harshavardhana please confirm you are officially rejecting this request. ."))
+print(run_inference("can someone help us generate list of objects with etag as a CSV on a Minio cluster for a specific bucket, the ask is for Minio-dv-iad1b cluster and bucket 'disney-prod-vod-origin'. Harsha was able to generate that list previously for Akamai testing in EU"))
